@@ -1,0 +1,9 @@
+CLAUDE.md
+Dockerfile
+Instructions.md
+*.asv
+figures/
+
+# Rapport - keep only rapport.pdf
+Rapport/*
+!Rapport/rapport.pdf
