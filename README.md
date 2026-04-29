@@ -9,14 +9,20 @@ disconnect from the grid. This project implements a secondary voltage control sy
 using Model Predictive Control (MPC) to regulate reactive power and keep load bus
 voltages on reference, while preventing generators from hitting their reactive power limits.
 
-## Controllers
+## Repository Structure
 
-Three MPC-based controllers are implemented, sharing the same network and
-capacitor/reactor logic but differing in how OLTC transformers are handled:
+- **`Main controller/`** — Primary controller: OLTC co-optimized with generator voltages in a single QP. Uses an augmented state formulation to handle the two-step tap delay.
+- **`Alternative OLTC logic/`** — OLTC handled by a separate enumeration logic (`action_oltc.m`), independent from the MPC. Tap delay managed by explicit state correction.
+- **`Naive controller/`** — Baseline controller: OLTC driven directly by the voltage reference, no cost function, no delay anticipation.
+- **`Sensitivity test/`** — Standalone validation scripts comparing analytical sensitivity matrices against finite-difference approximations.
 
-- **Main controller** — OLTC co-optimized with generator voltages in a single QP
-- **Alternative OLTC logic** — OLTC handled by a separate enumeration logic
-- **Naive controller** — OLTC driven directly by the voltage reference (baseline)
+All three controllers share the same network definition (`case9xx_Bsh.m`), capacitor/reactor switching logic (`add_cap.m`), and sensitivity functions.
+
+## Running a Simulation
+
+Open MATLAB, navigate to the desired controller folder, and run `main.m`.
+
+Simulation parameters (horizon, weights, noise, constraints, Jacobian update frequency, etc.) can be adjusted at the top of `main.m`.
 
 ## Tech Stack
 
