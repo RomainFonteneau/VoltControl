@@ -60,7 +60,7 @@ PD_decrease_per_step=3;
 step_start_PD_decrease=40;
 step_end_PD_decrease=50;
 
-do_increase_QD=true; %Increase reactive consumption
+do_increase_QD=false; %Increase reactive consumption
 QD_increased_idx=[14]; 
 QD_increase_per_step=1;
 step_start_QD_increase=40;
@@ -91,6 +91,7 @@ load_idx  = find(mpc.bus(:, PD) ~= 0);
 cap_idx   = [4;6;8;11;12;13;14];
 oltc_idx  = [5;6;20;21;22;23]; %branch idx
 secondary_oltc_idx = mpc.branch(oltc_idx,T_BUS);
+primary_oltc_idx = mpc.branch(oltc_idx,F_BUS);
 
 % Size of index sets ------------------------------------------------------
 n_pv=size(pv_idx,1);
@@ -184,9 +185,11 @@ Qd_log(load_idx,1)=results.bus(load_idx,QD);
 Pg_log     = zeros(n_bus,nt+1);
 Pg_log(pv_idx,1)=results.gen(gen_number(pv_idx),PG);
 
+TAP_estimation_error_log  = zeros(n_branch, nt+1);
+
 %% Control loop
 for k = 0:nt-1
-    
+
     %--- Scenario ---
     if do_open_line && k==step_opening_line
         mpc.branch(line_opened_idx,BR_STATUS)=0;
@@ -242,9 +245,45 @@ for k = 0:nt-1
         %Build MPC matrices
         [A,B,H,f1,f2,Yref,A_ineq,b_ineq_x0,b_ineq] = Cal_MPC_matrices(mpc,Cv,Cq,Cv_tap,Cq_tap,N,alpha,u_pv_max,tap_step_size,oltc_idx,V_target);
     end
+    
+    %--- Tap estimation ---
+    R_oltc  = mpc.branch(oltc_idx, BR_R);
+    X_oltc  = mpc.branch(oltc_idx, BR_X);
+    B_oltc  = mpc.branch(oltc_idx, BR_B);
+    V_F = results.bus(primary_oltc_idx,   VM);
+    V_T = results.bus(secondary_oltc_idx, VM);
+    PF_pu   = results.branch(oltc_idx, PF) / baseMVA;
+    QF_pu   = results.branch(oltc_idx, QF) / baseMVA;
+
+    % Remove the shunt magnetizing current contribution from the measured flows
+    PF_series = PF_pu;                             % B has no effect on active power (pure susceptance)
+    QF_series = QF_pu - (B_oltc/2) .* V_F.^2; % Reactive flow through the series impedance only
+
+    tap_estimated = V_F ./ (V_T + (R_oltc .* PF_series + X_oltc .* QF_series) ./ V_T);
+
+    tap_est_discrete = round((tap_estimated - tap_min) / tap_step_size) * tap_step_size + tap_min;
+    tap_est_discrete = min(max(tap_est_discrete, tap_min), tap_max);
+
+    tap_measured = results.branch(oltc_idx, TAP);
+
+    TAP_estimation_error_log(oltc_idx,k+2)=tap_measured-tap_est_discrete;
+
+    % --- Dynamic tap bound constraints ---
+    % One row per OLTC per direction: sum of u_oltc(j) over the horizon
+    % is bounded by the remaining margin to each physical limit.
+
+    margin_up   = tap_max - tap_est_discrete;   % (n_oltc x 1)
+    margin_down = tap_est_discrete - tap_min;   % (n_oltc x 1)
+    
+    % S_oltc: (n_oltc x n_input*N), entry (j, (i-1)*n_input + n_pv + j) = 1
+    % Selects and sums u_oltc(j) across all N horizon steps
+    S_oltc = repmat([zeros(n_oltc, n_pv), eye(n_oltc)], 1, N);
+    
+    A_ineq_dyn = [A_ineq;  S_oltc; -S_oltc];
+    b_ineq_dyn = [ b_ineq_x0 * x + b_ineq; margin_up; margin_down];
 
     % --- Priority 1: MPC (generator voltage + OLTC) ---
-    [U, ~,exitflag] = quadprog(H, f1*x - f2*Yref, A_ineq,b_ineq_x0*x + b_ineq, [], [], [], [], [], optimset('Display', 'off'));
+    [U, ~,exitflag] = quadprog(H, f1*x - f2*Yref, A_ineq_dyn,b_ineq_dyn, [], [], [], [], [], optimset('Display', 'off'));
     if exitflag <= 0
         warning('QP failed at step %d with flag %d — applying zero input', k,exitflag);
         U = zeros(n_input * N, 1);
@@ -498,23 +537,21 @@ hEps_neg  = plot([0 nt-1], [-epsilon_oltc -epsilon_oltc], 'k--', 'LineWidth', 1)
 hStep_pos = plot([0 nt-1], [ tap_step_size  tap_step_size], 'k:', 'LineWidth', 1);
 hStep_neg = plot([0 nt-1], [-tap_step_size -tap_step_size], 'k:', 'LineWidth', 1);
 legendHandles = [hX(:)', hEps_pos, hStep_pos];
-oltc_labels = cellstr(compose("OLTC %d (branch %d)", [(1:n_oltc)', oltc_idx]));
-legendStrings = [oltc_labels; ...
-    {sprintf('epsilon = %.4f (deadband)', epsilon_oltc)}; ...
-    {sprintf('step size = %.5f (bound)', tap_step_size)}]';
+legendStrings = [compose("OLTC %d-%d (branch %d)", [mpc.branch(oltc_idx,F_BUS:T_BUS), oltc_idx])', ...
+    sprintf('epsilon = %.4f (deadband)', epsilon_oltc), ...
+    sprintf('step size = %.5f (bound)', tap_step_size)];
 legend(legendHandles, legendStrings, 'Location', 'northeast');
 title('OLTC commands from QP');
 xlabel('k');
 ylabel('u_{OLTC} (p.u.)')
 
-% 8. Voltage given to OLTC
+% 9. Voltage given to OLTC
 subplot(3,3,9);
 hold on; grid on;
 hX = stairs(0:(nt-1), U_log(n_pv+n_oltc+1:n_pv+n_oltc+n_oltc,:)');
 set(hX, 'LineWidth', 1.5)
 
 legendHandles = hX(:)';
-oltc_labels = cellstr(compose("OLTC %d (branch %d)", [(1:n_oltc)', oltc_idx]));
 legendStrings = compose("OLTC %d-%d (branch %d)", [mpc.branch(oltc_idx,F_BUS:T_BUS),oltc_idx])';
 legend(legendHandles, legendStrings, 'Location', 'northeast');
 title('Voltage given to OLTC')
@@ -523,24 +560,28 @@ ylabel('Voltage (p.u)')
 
 
 figure;
-% 1. Voltage in loads
 hold on; grid on;
-hX = stairs(0:nt, X_log(1:n_pq,:)');
-set(hX, 'LineWidth', 1.5)
-hZ = stairs(0:nt,[repmat(mpc.bus(pq_idx,VMAX),1,nt+1);repmat(mpc.bus(pq_idx,VMIN),1,nt+1)]');
-for i = 1:n_pq
-    hZ(i).Color = hX(i).Color;
-    hZ(i+n_load).Color = hX(i).Color;
-    hZ(i).LineStyle = 'none';  
-    hZ(i+n_load).LineStyle = 'none';   
-    hZ(i).Marker = 'diamond'; 
-    hZ(i+n_load).Marker = 'diamond';        
-    hZ(i).LineWidth = 0.8;
-    hZ(i+n_load).LineWidth = 0.8;
+
+hErr = stairs(0:nt, TAP_estimation_error_log(oltc_idx,:)');
+set(hErr, 'LineWidth', 1.5);
+
+% Horizontal lines for all possible tap errors (difference between any two tap values)
+tap_values = tap_min:tap_step_size:tap_max;
+for tv = tap_values
+    yline(tv - tap_values, ':', 'Color', [0.6 0.6 0.6], 'LineWidth', 0.8);
 end
-legendHandles = [hX(:)',hZ(1)];       
-legendStrings = [compose("Load %d", pq_idx'),"Constraints" ];
+yline(0, 'k-', 'LineWidth', 1.2);
+
+colors = get(gca, 'ColorOrder');
+for j = 1:n_oltc
+    c = colors(mod(j-1, size(colors,1)) + 1, :);
+    hErr(j).Color = c;
+end
+
+legendHandles = hErr(:)';
+legendStrings = compose("OLTC %d-%d (branch %d)", [mpc.branch(oltc_idx,F_BUS:T_BUS), oltc_idx])';
 legend(legendHandles, legendStrings, 'Location', 'northeast');
-title('Voltage in loads');
+
+title('Tap estimation error');
 xlabel('k');
-ylabel('Voltage (p.u)')
+ylabel('tap_{est} - tap_{measured} (p.u.)');
