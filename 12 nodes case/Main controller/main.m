@@ -10,11 +10,11 @@ N  = 3;    % MPC prediction horizon (steps)
 alpha = 0.001;  % Weight on Q_gen: voltage tracking dominates (V term has coefficient 1)
 beta  = 1;      % Weight on OLTC magnitude: tap used only when generators insufficient
 
-u_max      = 0.2;   % Maximum generator voltage increment per step (p.u.)
-
-
 % Gaussian noise standard deviations
 sigma_rate = 0;  % Rate used to compute the std deviation of noise around the nominal
+
+u_max      = 0.2;   % Maximum generator voltage increment per step (p.u.)
+
 
 % Jacobian recalculation period: 0 = every step, n = every n steps
 t_jac = 0;

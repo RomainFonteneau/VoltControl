@@ -1,0 +1,226 @@
+function [A,B,H,f1,f2,Yref,A_ineq,b_ineq_x0,b_ineq] = Cal_MPC_matrices(mpc,Cv,Cq,Cv_tap,Cq_tap,N,alpha,u_pv_max,tap_step_size,oltc_idx,V_target)
+% Computes MPC matrices
+
+%% Preparation
+
+define_constants;
+baseMVA = mpc.baseMVA;
+
+% Index sets --------------------------------------------------------------
+pv_idx    = find(mpc.bus(:, BUS_TYPE) == PV);
+slack_idx = find(mpc.bus(:, BUS_TYPE) == REF);
+pq_idx    = find(mpc.bus(:, BUS_TYPE) == PQ);
+load_idx  = find(mpc.bus(:, PD) ~= 0);
+gen_idx   = mpc.gen(:,GEN_BUS);
+
+% Size of index sets ------------------------------------------------------
+n_pv=size(pv_idx,1);
+n_slack  = size(slack_idx, 1);
+n_pq=size(pq_idx,1);
+n_load   = size(load_idx,  1);
+n_gen = size(gen_idx,1);
+n_oltc = size(oltc_idx,1);
+n_bus    = n_pq+ n_pv + n_slack;
+
+load_in_x_idx = zeros(n_load, 1);
+for i = 1:n_load
+    bus = load_idx(i);
+    pq_pos = find(pq_idx == bus);
+    pv_pos = find(pv_idx == bus);
+    if ~isempty(pq_pos)
+        load_in_x_idx(i) = pq_pos;
+    else
+        load_in_x_idx(i) = n_pq + n_pv + pv_pos;
+    end
+end
+
+% gen_number(i) = row index in mpc.gen of the generator at bus i (0 if none)
+gen_number = zeros(n_bus, 1);
+for i = 1:n_gen
+    gen_number(mpc.gen(i,1)) = i;
+end
+
+% Extract hard limits
+Q_pv_max  = mpc.gen(gen_number(pv_idx), QMAX) / baseMVA;
+Q_pv_min  = mpc.gen(gen_number(pv_idx), QMIN) / baseMVA;
+V_pv_max  = mpc.bus(pv_idx, VMAX);
+V_pv_min  = mpc.bus(pv_idx, VMIN);
+V_pq_max  = mpc.bus(pq_idx, VMAX);
+V_pq_min  = mpc.bus(pq_idx, VMIN);
+
+%% State matrices
+% --- State space formulation ---
+%
+%   State: x(k) = [V_pq (n_pq x 1)     ]
+%                  [Q_pv (n_gen  x 1)     ]
+%                  [V_pv  (n_gen  x 1)     ]
+%                  [U_oltc_tap(k-1) (n_oltc x 1)]
+%
+%
+%   Input: u(k) = [U_pv (n_pv  x 1)]
+%                   [u_OLTC_tap     (n_oltc x 1)]
+%
+%   Output: y(k) = [V_load (n_load x 1)]
+%                  [Q_pv   (n_pv x 1)]
+%
+%   Dynamics: x(k+1) = A * x(k) + B * u(k)
+%             y(k)   = C * x(k)
+%
+%     A = [ Ipq     0       0     S_Vpv_TAP ]    B  = [ S_Vpq_Vpv   0     ]
+%         [ 0       Ipv     0     S_Qpv_TAP ]         [ S_Qpv_Vpv   0     ]
+%         [ 0       0       Ipv   0         ]         [ Ipv         0     ]
+%         [ 0       0       0     O         ]         [ 0           Ioltc ]
+%
+%
+%   Property: A^n = A
+%
+%   C = [Iload 0    0 0]
+%       [0     Ipv  0 0]
+
+A = [ eye(n_pq)           zeros(n_pq,n_pv)    zeros(n_pq,n_pv)     Cv_tap    
+      zeros(n_pv,n_pq)    eye(n_pv)           zeros(n_pv,n_pv)     Cq_tap          
+      zeros(n_pv,n_pq)    zeros(n_pv,n_pv)    eye(n_pv)            zeros(n_pv,n_oltc)                 
+      zeros(n_oltc,n_pq)  zeros(n_oltc,n_pv)  zeros(n_oltc,n_pv)   zeros(n_oltc,n_oltc) ]; 
+
+B = [Cv          zeros(n_pq,n_oltc)
+     Cq          zeros(n_pv,n_oltc)
+     eye(n_pv)   zeros(n_pv,n_oltc)
+     zeros(n_oltc,n_pv) eye(n_oltc)];
+
+C = zeros(n_load+n_pv,n_pq+n_pv+n_pv+n_oltc);
+for i = 1 : n_load
+    C(i,load_in_x_idx(i))=1;
+end
+C(n_load+1:end,n_pq+1:n_pq+n_pv)=eye(n_pv);
+
+%% Stacked matrices
+%[y(k+1)]           C_tilde*PI*x(k) +C_tilde*GAMMA*[u(k)    ]
+%...           =                                    ...     ]
+%[y(k+N)]                                          [u(K+N-1)]
+%
+% PI=[A       
+%     A^2       
+%     ...        
+%     A^(N-1)]   
+%
+% GAMMA=[B                  
+%        AB B
+% 
+%        A^(N-1)B ... B] 
+%   Property: A^n = A
+
+C_tilde = kron(eye(N), C);
+PI    = repmat(A, N, 1); %Valid only because A^n=A, same for GAMMA
+GAMMA = kron(eye(N),B) + ...              % diagonal blocks
+    kron(tril(ones(N), -1), A*B);         % subdiagonal blocks
+
+%% Cost function matrices 
+%Weight matrices
+%W=(1,...,alpha,...,alpha)
+%Omega=diag(W,...,W)
+
+%Cost function
+%J=sum(i=1:N)(||V_pq-1||^2_2+alpha*||Q_pv||^2_2
+%J=(Y-Yref)'*Omega*(Y-Yref)
+
+%min J <=> min 0.5U'HU +(f1*x(k)-f2Yref)'U
+%with H=GAMMA'*Ctilde'*Omega*Ctilde*GAMMA
+%f1=GAMMA'*Ctilde'*Omega*C_tilde*PI
+%f2=GAMMA'*C_tilde'*Omega
+
+W=eye(n_load+n_pv);
+W(n_load+1:end,n_load+1:end)=W(n_load+1:end,n_load+1:end)*alpha;
+Omega=kron(eye(N),W);
+
+Yref=repmat([V_target;zeros(n_pv,1)],N,1);
+
+H=GAMMA'*C_tilde'*Omega*C_tilde*GAMMA;
+H=(H'+H)/2;
+f1=GAMMA'*C_tilde'*Omega*C_tilde*PI;
+f2=GAMMA'*C_tilde'*Omega;
+
+%% Constraints
+%-u_pv_max<=U_pv<=u_pv_max
+%-tap_step_size<=U_oltc_tap<=tap_step_size
+%V_pq_min<=V_pq<=V_pq_max
+%Q_pv_min<=Q_pv<=Q_pv_max
+%V_pv_min<=V_pv=<V_pv_max
+%Can be rewritten A_ineq*U<=b_ineq-b_ineq_x0*x0
+
+% --- Selector matrix for input block  ---
+Hu_pv=[eye(n_pv),  zeros(n_pv,n_oltc)];
+Hu_oltc = [zeros(n_oltc, n_pv),  eye(n_oltc)];
+
+% --- Selector matrix for state block  ---
+Hx_Vpq = [eye(n_pq),          zeros(n_pq, n_pv),  zeros(n_pq, n_pv),  zeros(n_pq, n_oltc)];
+Hx_Qpv = [zeros(n_pv, n_pq),  eye(n_pv),          zeros(n_pv, n_pv),  zeros(n_pv, n_oltc)];
+Hx_Vpv = [zeros(n_pv, n_pq),  zeros(n_pv, n_pv),  eye(n_pv),          zeros(n_pv, n_oltc)];
+
+% --- Stack selectors over the N-step horizon ---
+Hu_pv_tilde = kron(eye(N), Hu_pv);     % (N*n_pv)   x (N*n_u)
+Hu_oltc_tilde = kron(eye(N), Hu_oltc);  % (N*n_oltc)   x (N*n_u)
+Hx_V_pq_tilde = kron(eye(N), Hx_Vpq);   % (N*n_pq)     x (N*n_x)
+Hx_Q_pv_tilde = kron(eye(N), Hx_Qpv);   % (N*n_pv)     x (N*n_x)
+Hx_V_pv_tilde = kron(eye(N), Hx_Vpv);   % (N*n_pv)     x (N*n_x)
+
+% --- U_oltc_tap constraints: -tap_step_size <= U_oltc_tap <= tap_step_size ---
+% Direct input constraint, no dependence on x0.
+
+A_ineq_U_oltc    = [ Hu_oltc_tilde; ...
+    -Hu_oltc_tilde];
+
+b_ineq_x0_U_oltc = zeros(2*N*n_oltc, n_pq+n_pv+n_pv+n_oltc);
+
+b_ineq_U_oltc    = repmat(tap_step_size * ones(n_oltc, 1), 2*N, 1);
+
+% --- U_pv constraints: -u_pv_max<=U_pv<=u_pv_max ---
+% Direct input constraint, no dependence on x0.
+
+A_ineq_U_pv    = [ Hu_pv_tilde; ...
+    -Hu_pv_tilde];
+
+b_ineq_x0_U_pv = zeros(2*N*n_pv, n_pq+n_pv+n_pv+n_oltc);
+
+b_ineq_U_pv    = repmat(u_pv_max * ones(n_pv, 1), 2*N, 1);
+
+
+% --- V_pq constraints: V_pq_min <= V_pq <= V_pq_max ---
+% [ Hx_Vpq_tilde * GAMMA ] * U <= repmat(V_pq_max, N, 1) - Hx_Vpq_tilde * PI * x0
+% [-Hx_Vpq_tilde * GAMMA ] * U <= repmat(-V_pq_min, N, 1) + Hx_Vpq_tilde * PI * x0
+
+A_ineq_V_pq     = [ Hx_V_pq_tilde * GAMMA; ...
+    -Hx_V_pq_tilde * GAMMA];
+
+b_ineq_x0_V_pq  = [-Hx_V_pq_tilde * PI; ...
+    Hx_V_pq_tilde * PI];
+
+b_ineq_V_pq     = [ repmat(V_pq_max,  N, 1); ...
+    repmat(-V_pq_min, N, 1)];
+
+% --- Q_pv constraints: Q_pv_min <= Q_pv <= Q_pv_max ---
+
+A_ineq_Q_pv     = [ Hx_Q_pv_tilde * GAMMA; ...
+    -Hx_Q_pv_tilde * GAMMA];
+
+b_ineq_x0_Q_pv  = [-Hx_Q_pv_tilde * PI; ...
+    Hx_Q_pv_tilde * PI];
+
+b_ineq_Q_pv     = [ repmat(Q_pv_max,  N, 1); ...
+    repmat(-Q_pv_min, N, 1)];
+
+% --- V_pv constraints: V_pv_min <= V_pv <= V_pv_max ---
+
+A_ineq_Vpv     = [ Hx_V_pv_tilde * GAMMA; ...
+    -Hx_V_pv_tilde * GAMMA];
+
+b_ineq_x0_Vpv  = [-Hx_V_pv_tilde * PI; ...
+    Hx_V_pv_tilde * PI];
+
+b_ineq_V_pv     = [ repmat(V_pv_max,  N, 1); ...
+    repmat(-V_pv_min, N, 1)];
+
+% Combine all inequality constraints into a single matrix
+A_ineq = [A_ineq_U_pv; A_ineq_U_oltc; A_ineq_V_pq; A_ineq_Q_pv; A_ineq_Vpv];
+b_ineq_x0 = [b_ineq_x0_U_pv; b_ineq_x0_U_oltc; b_ineq_x0_V_pq; b_ineq_x0_Q_pv; b_ineq_x0_Vpv];
+b_ineq = [b_ineq_U_pv; b_ineq_U_oltc; b_ineq_V_pq; b_ineq_Q_pv; b_ineq_V_pv];
+end
