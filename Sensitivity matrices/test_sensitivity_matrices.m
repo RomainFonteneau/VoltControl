@@ -22,7 +22,9 @@ mpc      = Extented_case();        % MATPOWER case
 dV       = 0.01;       % Voltage perturbation magnitude (pu)
 cap      = 0.05;       % Susceptance of the added capacitor (pu)
 dTAP     = 0.00625;    % Tap modification
+oltc_idx         = [5;6;20;21;22;23]; 
 
+mpc.branch(oltc_idx,TAP)=0.9; %Don't forget to also modify the argument given to CalCv_tap (line 64) if the tap is changed
 % -------------------------------------------------------------------------
 % Base-case power flow and Jacobian
 % -------------------------------------------------------------------------
@@ -41,7 +43,6 @@ pv_and_slack_idx = find(ismember(mpc.bus(:, BUS_TYPE), [PV, REF]));
 pv_idx           = find(mpc.bus(:, BUS_TYPE) == PV);
 pq_idx           = find(mpc.bus(:, BUS_TYPE) == PQ);
 slack_idx        = find(mpc.bus(:, BUS_TYPE) == REF);
-oltc_idx         = [5;6;20;21;22;23]; 
 
 n_bus            = size(mpc.bus, 1);
 n_pv             = size(pv_idx, 1);
@@ -60,7 +61,7 @@ end
 % Analytical sensitivities (Jacobian-based)
 % -------------------------------------------------------------------------
 [Cv_ana,Cq_ana] = Cal_CvCq(mpc,JAC);
-[Cv_tap_ana,Cq_tap_ana] = Cal_Cv_tapCq_tap(mpc,JAC,voltage);
+[Cv_tap_ana,Cq_tap_ana] = Cal_Cv_tapCq_tap(mpc,JAC,voltage,0.9*ones(n_branch,1));
 [Cv_cap_ana,Cq_cap_ana] = Cal_Cv_capCq_cap(mpc,JAC,voltage);
 
 

@@ -1,0 +1,16 @@
+Ouvrir une ligne : chute de tension => générateur réagissent => leur Q est modifié
+Si JAC pas mise à jour, on veut augmenter le tap, il est augmenté, au pas suivant on ne veut pas le baisser pourtant il est baissé. Le controlleur trouve un combo tap + tension du générateur 10 en pensant que la tension du générateur 10 aura un impact. Il veut augmenter la tension et en même temps augmenter le tap. On donne alors une tension à l'oltc qui permet d'augmenter le tap, il n'y pas de problème à ce moment car la tension est estimée un pas avant que le générateur ait une consigne de tension importante, donc la tension estimée est proche de la tension réelle, donc le tap est bien augmenté. Ensuite, il veut donc augmenter la tension du générateur 10, en même temps qu'a lieu cette augmentation du tap. Il estime alors que la tension sera plus élevée que ce qu'elle ne sera réellement. Il n'a aussi plus envie de modifier le tap, il lui donne alors la tension qu'il estime, or cette tension est plus élévée que celle mesurée donc le tap est baissé. Ensuite la tension redevient donc un peu supérieure à l'objectif, le générateur 10 baisse sa tension pour la ramener vers l'objectif, jusqu'à ce qu'il retrouve le même combo, et ceci à l'infini.
+
+
+Ouverture puis fermeture d'une ligne => Lors de la fermeture la tension augmente. 
+Si JAC n'est jamais mise à jour, quand la ligne est fermée, elle redevient correcte. 
+On a une oscillation du tap. Le MPC veut augmenter partiellement le tap, problème il l'augmente complètement, puis il veut le baisser partiellement, problème il le baisse complètement et ainsi de suite. => A voir ce qu'on peut faire avec la fonction de cout.
+
+Ligne initialement ouverte + fermeture : Augmentation de tension
+Si jac n'est pas mise à jour, le controller pense que le générateur 10 n'agit pas sur la charge 10. Donc il modifie sa tension en conséquence, il ne se passe pas ce qu'il prévoyait. Impossible de réguler correctement la tension.
+
+Modification de PG: Modification des pertes, modification des tensions => modification de Q  
+
+Modification de PD: Modification des pertes, modification des tensions => modification de Q
+
+Modification de QD: Modification des pertes, modification des tensions => modification de Q

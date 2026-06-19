@@ -1,7 +1,10 @@
 function u_cap_k = add_cap(mpc,x_estimated_k1,Cv_cap,Cq_cap,cap_availability,cap_idx,cap,Q_lim_rate,cap_k)
 %This function add or remove the capacitor which minimized the most the
 %criterion. The criterion is here defined by the reactive power in
-%generator out of the soft limits. This function acts to preserve reactive margins 
+%generator out of the soft limits. This function acts to preserve reactive
+%margins.
+%Capacitors are present on the 20kV network and the 63kV one.
+%Reactances are only present on the 63kV network.
 
 %cap_k: number of capacitors activated at step k
 

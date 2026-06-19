@@ -1,4 +1,4 @@
-function [Cv_tap,Cq_tap] = Cal_Cv_tapCq_tap(mpc,JAC,voltage)
+function [Cv_tap,Cq_tap] = Cal_Cv_tapCq_tap(mpc,JAC,voltage,TAP_estimated)
 %Cv_tap(i,j) reflects the increase in voltage in pq bus i when the tap  of oltc branch j is
 %increased by 1pu 
 %Cq_tap(i,j) reflects the increased in reactive power in pv bus i when the tap of oltc branch j
@@ -21,8 +21,9 @@ for k=1:n_branch
     Fbus=mpc.branch(k,F_BUS);
     Tbus=mpc.branch(k,T_BUS);
     X=mpc.branch(k,BR_X);
-    dQdTAP(Fbus,k)=2*voltage(Fbus)^2/X-voltage(Fbus)*voltage(Tbus)/X;
-    dQdTAP(Tbus,k)=-voltage(Tbus)*voltage(Fbus)/X;
+    TAP_k=TAP_estimated(k);
+    dQdTAP(Fbus,k)=2*voltage(Fbus)^2/(X*TAP_k^3)-voltage(Fbus)*voltage(Tbus)/(X*TAP_k^2);
+    dQdTAP(Tbus,k)=-voltage(Tbus)*voltage(Fbus)/(X*TAP_k^2);
 end
 dQpqdTAP = dQdTAP(pq_idx, :);
 Cv_tap_temp=sparse(dQpqdVpq\dQpqdTAP);
