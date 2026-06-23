@@ -8,7 +8,7 @@ t_jac = 1; % Jacobian recalculation period: 0= never 1 = every step, n = every n
 Q_lim_rate = 0.5;  % Soft reactive power limit is Q_lim_rate*QMIN/MAX (p.u.)
 
 % Physical parameters -----------------------------------------------------
-u_pv_max   = 0.5;    % Maximum generator voltage increment per step (p.u.)
+u_pv_max   = 0.05;    % Maximum generator voltage increment per step (p.u.)
 tap_min   = 0.9;      % Physical tap lower bound
 tap_max   = 1.1;      % Physical tap upper bound
 tap_step_size = 0.00625;  % Tap step size (p.u.)
@@ -23,7 +23,7 @@ alpha = 0;  % Weight on Q_gen: voltage tracking dominates (V term has coefficien
 
 % Threshold for converting the continuous QP output u_OLTC to a discrete tap request.
 % If |u_OLTC(j)| > epsilon_oltc, a tap movement is requested on transformer j.
-epsilon_oltc = tap_step_size / 2;
+epsilon_oltc = 0.95*tap_step_size;
 
 % --- Parameters given to custom_runpf
 parameters =[tap_step_size,tol_tap,tap_min,tap_max,cap];
@@ -149,6 +149,9 @@ Pg_log(pv_idx,1)=results.gen(gen_number(pv_idx),PG);
 TAP_estimation_error_log  = zeros(n_branch, nt+1);
 tap_est_discrete=ones(n_branch,1);
 
+Crit_log=zeros(1,nt+1);                                                                   
+Crit_log(1,1)=sum((x(load_idx_in_x)-V_target).^2);   
+
 %% Control loop
 for k = 0:nt-1
 
@@ -240,9 +243,9 @@ for k = 0:nt-1
         u_cap_k=zeros(n_cap,1);
     end
 
-    cap_availability(cap_idx)=max(0,cap_availability(cap_idx)+u_cap_k*(t_unavailability_cap+1)-1);
-    %x_estimated_k1(1:n_pq)=x_estimated_k1(1:n_pq)+Cv_cap(pq_idx,cap_idx)*u_cap_k;%Update x estimated
-    %x_estimated_k1(n_pq+1:n_pq+n_pv)=x_estimated_k1(n_pq+1:n_pq+n_pv)+Cq_cap(pv_idx,cap_idx)*u_cap_k;
+    cap_availability(cap_idx)=max(0,cap_availability(cap_idx)+abs(u_cap_k)*(t_unavailability_cap+1)-1);
+    x_estimated_k1(1:n_pq)=x_estimated_k1(1:n_pq)+Cv_cap(pq_idx,cap_idx)*u_cap_k*cap/baseMVA;%Update x estimated
+    x_estimated_k1(n_pq+1:n_pq+n_pv)=x_estimated_k1(n_pq+1:n_pq+n_pv)+Cq_cap(pv_idx,cap_idx)*u_cap_k*cap/baseMVA;
     
     % --- Apply input and run power flow ---
 
@@ -319,6 +322,7 @@ for k = 0:nt-1
     Qd_log(load_idx,k+2)     = results.bus(load_idx,QD);
     Pg_log(pv_idx,k+2)       = results.gen(gen_number(pv_idx),PG);
     TAP_estimation_error_log(oltc_idx,k+2)=tap_measured-tap_est_discrete(oltc_idx);
+    Crit_log(1,k+2)=sum((x(load_idx_in_x)-V_target).^2);
 
        
 end
@@ -845,8 +849,9 @@ for j = 1:n_oltc
     hEst(j).LineWidth = 1.2;
 end
 
-legendHandles = [hX(1), hEst(1)];
-legendStrings = {"V ref (given to OLTC)", "V estimated (secondary)"};
+legendHandles = [hX(:)', hEst(1)];
+legendStrings = [compose("OLTC %d-%d (branch %d)", [mpc.branch(oltc_idx,F_BUS:T_BUS), oltc_idx])',...
+    sprintf('V estimated (secondary)')];
 legend(legendHandles, legendStrings, 'Location', 'northeast');
 title('Voltage given to OLTC vs estimated secondary voltage')
 xlabel('k')
@@ -896,8 +901,9 @@ for j = 1:n_oltc
     hEst(j).LineWidth = 1.2;
 end
 
-legendHandles = [hMeas(1), hEst(1)];
-legendStrings = {"V measured (secondary)", "V estimated (secondary)"};
+legendHandles = [hMeas(:)', hEst(1)];
+legendStrings = [compose("OLTC %d-%d (branch %d)", [mpc.branch(oltc_idx,F_BUS:T_BUS), oltc_idx])',...
+    sprintf('V estimated (secondary)')];
 legend(legendHandles, legendStrings, 'Location', 'northeast');
 title('Estimated secondary voltage vs measured')
 xlabel('k')
@@ -916,4 +922,18 @@ legend(legendHandles, legendStrings, 'Location', 'northeast');
 title('Difference between TAP modification requested and real')
 xlabel('k')
 ylabel('Tap modification')
+set(findall(gcf, 'Type', 'axes'), 'FontSize', 14)
+
+%% Criterion
+figure;
+hold on; grid on;
+h = stairs(0:nt, Crit_log');
+set(h, 'LineWidth', 1.5)
+
+legendHandles = h(:)';
+legendStrings = {'Criterion'};
+legend(legendHandles, legendStrings, 'Location', 'northeast');
+title('Criterion')
+xlabel('k')
+ylabel('Criterion')
 set(findall(gcf, 'Type', 'axes'), 'FontSize', 14)
