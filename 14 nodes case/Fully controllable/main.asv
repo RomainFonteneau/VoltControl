@@ -23,8 +23,8 @@ first_delay_oltc=3;   % Number of consecutive out-of-tolerance steps required be
                       % crosses to the other side, or the setpoint changes.
 % MPC parameters ----------------------------------------------------------
 N  = 4;    % MPC prediction horizon (steps)
-alpha = 0.001;  % Weight on Q_gen: voltage tracking dominates (V term has coefficient 1)
-beta = 0.01; %Weight on tap modification
+alpha = 0;  % Weight on Q_gen: voltage tracking dominates (V term has coefficient 1)
+beta = 0; %Weight on tap modification
 
 % Threshold for converting the continuous QP output u_OLTC to a discrete tap request.
 % If |u_OLTC(j)| > epsilon_oltc, a tap movement is requested on transformer j.
@@ -200,7 +200,7 @@ for k = 0:nt-1
         Cq_tap=Cq_tap(pv_idx,oltc_idx);
 
         %Build MPC matrices
-        [A,B,H,f1,f2,Yref,A_ineq,b_ineq_x0,b_ineq] = Cal_MPC_matrices(mpc,Cv,Cq,Cv_tap,Cq_tap,N,alpha,u_pv_max,tap_step_size,oltc_idx,V_target);
+        [A,B,H,f1,f2,Yref,A_ineq,b_ineq_x0,b_ineq] = Cal_MPC_matrices(mpc,Cv,Cq,Cv_tap,Cq_tap,N,alpha,beta,u_pv_max,tap_step_size,oltc_idx,V_target);
     end
 
     % --- Dynamic tap bound constraints ---
@@ -214,7 +214,7 @@ for k = 0:nt-1
     % Selects and sums u_oltc(j) across all N horizon steps
     % The last zeros block refers to the variables used for the tap
     % minimization
-    S_oltc = repmat([zeros(n_oltc, n_pv), eye(n_oltc),zeros(n_oltc,n_oltc)], 1, N);
+    S_oltc = repmat([zeros(n_oltc, n_pv), eye(n_oltc),zeros(n_oltc,2*n_oltc)], 1, N);
     
     A_ineq_dyn = [A_ineq;  S_oltc; -S_oltc];
     b_ineq_dyn = [ b_ineq_x0 * x + b_ineq; margin_up; margin_down];

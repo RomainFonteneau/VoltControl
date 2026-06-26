@@ -1,4 +1,4 @@
-function [A,B,H,f1,f2,Yref,A_ineq,b_ineq_x0,b_ineq] = Cal_MPC_matrices(mpc,Cv,Cq,Cv_tap,Cq_tap,N,alpha,u_pv_max,tap_step_size,oltc_idx,V_target)
+function [A,B,H,f1,f2,Yref,A_ineq,b_ineq_x0,b_ineq] = Cal_MPC_matrices(mpc,Cv,Cq,Cv_tap,Cq_tap,N,alpha,beta,u_pv_max,tap_step_size,oltc_idx,V_target)
 % Computes MPC matrices
 
 %% Preparation
@@ -224,7 +224,7 @@ A_ineq = [A_ineq_U_pv; A_ineq_U_oltc; A_ineq_V_pq; A_ineq_Q_pv; A_ineq_Vpv];
 b_ineq_x0 = [b_ineq_x0_U_pv; b_ineq_x0_U_oltc; b_ineq_x0_V_pq; b_ineq_x0_Q_pv; b_ineq_x0_Vpv];
 b_ineq = [b_ineq_U_pv; b_ineq_U_oltc; b_ineq_V_pq; b_ineq_Q_pv; b_ineq_V_pv];
 
-%% NORM 1 FOR TAP PENALIZATION
+%% NORM 1 FOR TAP
 
 % The cost function is now
 %J=sum(i=1:N)(||V_pq-1||^2_2+alpha*||Q_pv||^2_2 +
@@ -246,14 +246,14 @@ b_ineq = [b_ineq_U_pv; b_ineq_U_oltc; b_ineq_V_pq; b_ineq_Q_pv; b_ineq_V_pv];
 %Constraints can be rewritten [Hu_oltc,-I;-Hu_oltc,-I]*U_tilde<=0
 %Which define new matrices A_ineq, b_ineq and b_ineq
 
-H=[H,zeros(N*(n_pv+n_oltc),N*n_oltc);
-    zeros(N*n_oltc,N*(n_pv+n_oltc)),zeros(N*n_oltc,N*n_oltc)];
+H=[H,zeros(N*(n_pq+n_pv+n_pv+n_oltc),N*n_oltc);
+    zeros(N*n_oltc,N*(n_pq+n_pv+n_pv+n_oltc)),zeros(N*n_oltc,N*n_oltc)];
 
 A_ineq_tap=[Hu_oltc_tilde,-eye(N*n_oltc);-Hu_oltc_tilde,-eye(N*n_oltc)];
 
 l=size(A_ineq,1);
-A_ineq=[A_ineq,zeros(l,N*n_oltc);A_ineq_tap];
+A_ineq=[A_ineq,zeros(l,N*n_oltc);A_ineq_tap]
 
-b_ineq=[b_ineq;zeros(2*N*n_oltc,1)];
-b_ineq_x0=[b_ineq_x0;zeros(2*N*n_oltc,size(b_ineq_x0,2))];
+b_ine
+
 end
