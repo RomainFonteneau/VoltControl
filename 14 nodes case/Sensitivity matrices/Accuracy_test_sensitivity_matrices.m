@@ -90,8 +90,8 @@ for j = 1:n_pv+n_slack
     Cq_num(pv_and_slack_idx, pv_and_slack_idx(j)) = dQg / dV;
 end
 
-Cv_num(abs(Cv_num)<0.01)=0;
-Cq_num(abs(Cq_num)<0.01)=0;
+%Cv_num(abs(Cv_num)<0.01)=0;
+%Cq_num(abs(Cq_num)<0.01)=0;
 
 % -------------------------------------------------------------------------
 % Numerical Cv_tap and Cq_tap
@@ -115,8 +115,8 @@ for j = 1:n_oltc
     Cq_tap_num(pv_and_slack_idx, branch_j)   = dQg / dTAP;
 end
 
-Cv_tap_num(abs(Cv_tap_num)<0.01)=0;
-Cq_tap_num(abs(Cq_tap_num)<0.01)=0;
+%Cv_tap_num(abs(Cv_tap_num)<0.01)=0;
+%Cq_tap_num(abs(Cq_tap_num)<0.01)=0;
 
 % -------------------------------------------------------------------------
 % Numerical Cv_cap and Cq_cap
@@ -140,8 +140,8 @@ for j = 1:n_bus
     Cq_cap_num(pv_and_slack_idx, j)   = dQg / cap;
 end
 
-Cv_cap_num(abs(Cv_cap_num)<0.01)=0;
-Cq_cap_num(abs(Cq_cap_num)<0.01)=0;
+%Cv_cap_num(abs(Cv_cap_num)<0.01)=0;
+%Cq_cap_num(abs(Cq_cap_num)<0.01)=0;
 
 % -------------------------------------------------------------------------
 % Display percentage differences (analytical vs numerical)

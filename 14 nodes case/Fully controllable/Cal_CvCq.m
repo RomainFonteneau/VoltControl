@@ -11,13 +11,13 @@ pv_and_slack_idx=find(ismember(mpc.bus(:,BUS_TYPE),[PV,REF]));
 pq_idx=find(mpc.bus(:,BUS_TYPE)==PQ);
 n_bus=size(mpc.bus,1);
 
-dQldVg=JAC(n_bus+pq_idx,n_bus+pv_and_slack_idx);
-dQldVl=JAC(n_bus+pq_idx,n_bus+pq_idx);
-Cv_temp = -dQldVl\dQldVg;
+dQpqdVpv=JAC(n_bus+pq_idx,n_bus+pv_and_slack_idx);
+dQpqdVpq=JAC(n_bus+pq_idx,n_bus+pq_idx);
+Cv_temp = -dQpqdVpq\dQpqdVpv;
 
-dQgdVg=JAC(n_bus+pv_and_slack_idx,n_bus+pv_and_slack_idx);
-dQgdVl=JAC(n_bus+pv_and_slack_idx,n_bus+pq_idx);
-Cq_temp = (dQgdVg + dQgdVl*Cv_temp);
+dQpvdVpv=JAC(n_bus+pv_and_slack_idx,n_bus+pv_and_slack_idx);
+dQpvdVpq=JAC(n_bus+pv_and_slack_idx,n_bus+pq_idx);
+Cq_temp = (dQpvdVpv + dQpvdVpq*Cv_temp);
 
 %%
 Cv = sparse(n_bus, n_bus);

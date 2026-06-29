@@ -22,13 +22,13 @@ for k=1:n_branch
     Tbus=mpc.branch(k,T_BUS);
     X=mpc.branch(k,BR_X);
     TAP_k=TAP_estimated(k);
-    dQdTAP(Fbus,k)=2*voltage(Fbus)^2/(X*TAP_k^3)-voltage(Fbus)*voltage(Tbus)/(X*TAP_k^2);
-    dQdTAP(Tbus,k)=-voltage(Tbus)*voltage(Fbus)/(X*TAP_k^2);
+    dQdTAP(Fbus,k)=-2*voltage(Fbus)^2/(X*TAP_k^3)+voltage(Fbus)*voltage(Tbus)/(X*TAP_k^2);
+    dQdTAP(Tbus,k)=voltage(Tbus)*voltage(Fbus)/(X*TAP_k^2);
 end
 dQpqdTAP = dQdTAP(pq_idx, :);
-Cv_tap_temp=sparse(dQpqdVpq\dQpqdTAP);
+Cv_tap_temp=-sparse(dQpqdVpq\dQpqdTAP);
 
-Cq_tap_temp = dQpvdVpq * Cv_tap_temp - dQdTAP(pv_and_slack_idx, :);
+Cq_tap_temp = dQpvdVpq * Cv_tap_temp + dQdTAP(pv_and_slack_idx, :);
 
 %%
 Cv_tap=zeros(n_bus,n_branch);
